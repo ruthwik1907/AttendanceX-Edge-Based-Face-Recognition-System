@@ -1,0 +1,14 @@
+numpy
+pandas
+opencv-python
+scikit-learn
+torch
+torchvision
+facenet-pytorch
+tqdm
+joblib
+pillow
+flask
+tensorflow
+openpyxl
+werkzeug
