@@ -29,6 +29,7 @@ attendance.csv
 .venv
 venv/
 ENV/
+studentMaster.xlsx
 
 # IDE & Editor
 .vscode/
