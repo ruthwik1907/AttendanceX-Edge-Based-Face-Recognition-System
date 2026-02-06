@@ -1,14 +1,45 @@
-numpy
+# ------------------------------
+# Core numerical & utils
+# ------------------------------
+numpy<2.0
 pandas
-opencv-python
-scikit-learn
-torch
-torchvision
-facenet-pytorch
 tqdm
 joblib
-pillow
-flask
-tensorflow
 openpyxl
-werkzeug
+
+# ------------------------------
+# Image processing
+# ------------------------------
+opencv-python==4.6.0.66
+Pillow
+
+# ------------------------------
+# Machine Learning
+# ------------------------------
+scikit-learn
+tensorflow-cpu==2.13.0
+
+# ------------------------------
+# PyTorch + FaceNet
+# ------------------------------
+torch==2.0.1
+torchvision==0.15.2
+facenet-pytorch==2.5.3
+
+# ------------------------------
+# Flask (Upload UI)
+# ------------------------------
+Flask==2.3.2
+Werkzeug==2.3.6
+
+# ------------------------------
+# TFLite (embedded inference)
+# Only ONE of these is needed.
+# If tflite_runtime fails, TensorFlow’s lite runner is already installed via tensorflow.
+# ------------------------------
+tflite-runtime; platform_system != "Windows"
+
+# ------------------------------
+# Misc
+# ------------------------------
+requests

@@ -1,72 +1,64 @@
 #!/usr/bin/env python3
 # scripts/realtime_tflite_infer_safe2.py
 """
-Robust realtime TFLite inference helper.
+Robust realtime ArcFace ONNX inference helper.
+- Uses ArcFace ONNX model for embeddings and joblib classifier.
 - Safely handles weird tensor shapes returned by interpreters.
 - Prints a single diagnostic when it sees an unexpected shape/type.
 - Falls back to headless (no GUI) if cv2.imshow isn't available.
 """
 import cv2, numpy as np, json, time, sys, traceback
 from pathlib import Path
-
-# Prefer tflite_runtime if available
-try:
-    import tflite_runtime.interpreter as tflite
-except Exception:
-    import tensorflow as tf
-    tflite = tf.lite
+import onnxruntime as ort
+import joblib
 
 MODELS = Path("models")
-EMB_PATH = MODELS / "mobilefacenet.tflite"
-CLS_PATH = MODELS / "classifier.tflite"
-LABEL_MAP_PATH = MODELS / "label_map.json"
+EMB_PATH = MODELS / "arcface.onnx"
+CLS_PATH = MODELS / "classifier_arcface.joblib"
+LABEL_MAP_PATH = MODELS / "label_map_arcface.json"
 
 if not EMB_PATH.exists() or not CLS_PATH.exists() or not LABEL_MAP_PATH.exists():
-    print("Missing required files in models/: mobilefacenet.tflite, classifier.tflite, label_map.json")
+    print("Missing required files in models/: arcface.onnx, classifier_arcface.joblib, label_map_arcface.json")
     sys.exit(1)
 
 label_map = json.loads(LABEL_MAP_PATH.read_text())
 
-# load interpreters
-emb_i = tflite.Interpreter(model_path=str(EMB_PATH)); emb_i.allocate_tensors()
-emb_in = emb_i.get_input_details()[0]; emb_out = emb_i.get_output_details()[0]
+# load ONNX session for ArcFace embeddings
+emb_session = ort.InferenceSession(str(EMB_PATH), providers=['CPUExecutionProvider'])
+emb_input_name = emb_session.get_inputs()[0].name
+emb_output_name = emb_session.get_outputs()[0].name
+emb_input_shape = emb_session.get_inputs()[0].shape
 
-cls_i = tflite.Interpreter(model_path=str(CLS_PATH)); cls_i.allocate_tensors()
-cls_in = cls_i.get_input_details()[0]; cls_out = cls_i.get_output_details()[0]
+# load joblib classifier
+classifier = joblib.load(str(CLS_PATH))
 
-print("Embedding input:", emb_in["shape"], emb_in["dtype"], "quant:", emb_in.get("quantization", None))
-print("Embedding output:", emb_out["shape"], emb_out["dtype"])
-print("Classifier input:", cls_in["shape"], cls_in["dtype"], "quant:", cls_in.get("quantization", None))
-print("Classifier output:", cls_out["shape"], cls_out["dtype"])
+print("ArcFace input shape:", emb_input_shape)
+print("ArcFace input name:", emb_input_name)
+print("Classifier loaded:", type(classifier))
 
-# basic params
-_, H, W, C = emb_in["shape"]
-emb_dtype = np.dtype(emb_in["dtype"])
-emb_quant = emb_in.get("quantization", (0.0, 0))
-cls_dtype = np.dtype(cls_in["dtype"])
-cls_quant = cls_in.get("quantization", (0.0, 0))
+# basic params for ArcFace (typically NCHW: batch, channels, height, width)
+# Input shape is ['None', 3, 112, 112] = (batch, channels, height, width)
+if len(emb_input_shape) == 4:
+    # NCHW format: batch, channels, height, width
+    _, C, H, W = emb_input_shape
+    # Handle 'None' or dynamic batch dimension
+    if isinstance(H, str): H = 112
+    if isinstance(W, str): W = 112
+    if isinstance(C, str): C = 3
+else:
+    H, W, C = 112, 112, 3  # default ArcFace size
+
+print(f"Using H={H}, W={W}, C={C}")
 
 def preprocess_frame(frame_bgr):
-    # convert center crop if no face detector
+    # ArcFace preprocessing: RGB, resize to 112x112, normalize to [-1, 1]
     img = cv2.cvtColor(frame_bgr, cv2.COLOR_BGR2RGB)
     img = cv2.resize(img, (W, H)).astype(np.float32)
-    float_input = img / 512 - 1.0  # common for mobilefacenet
-    if emb_dtype == np.float32:
-        return np.expand_dims(float_input.astype(np.float32), 0)
-    # quantized input expected
-    scale, zp = emb_quant
-    if scale == 0:
-        # fallback heuristic: map [-1,1] to int8 range
-        est_scale = 1.0 / 512.0
-        q = float_input / est_scale
-        zp = 0
-    else:
-        q = float_input / scale + zp
-    if np.issubdtype(emb_dtype, np.signedinteger):
-        q = np.round(q).astype(np.int8)
-    else:
-        q = np.round(q).astype(np.uint8)
-    return np.expand_dims(q, 0)
+    # ArcFace normalization: (pixel / 127.5) - 1.0
+    img = (img / 127.5) - 1.0
+    # Transpose from HWC to CHW format for ONNX (batch, channels, height, width)
+    img = np.transpose(img, (2, 0, 1))
+    return np.expand_dims(img, 0).astype(np.float32)
 
 def safe_to_numpy(x):
     # convert whatever tflite returns (lists/tuples/scalars) to numpy array
@@ -78,18 +70,27 @@ def safe_to_numpy(x):
 # helper to check whether cv2.imshow is usable
 def can_show():
     try:
-        cv2.namedWindow("test")
+        cv2.namedWindow("test", cv2.WINDOW_NORMAL)
         cv2.destroyWindow("test")
+        cv2.waitKey(1)  # Process window events
         return True
     except Exception:
         return False
 
 show_gui = can_show()
+print(f"GUI mode: {'enabled' if show_gui else 'disabled (headless)'}")
+
 # open camera: on Windows prefer CAP_DSHOW
 cap = cv2.VideoCapture(0, cv2.CAP_DSHOW) if sys.platform.startswith("win") else cv2.VideoCapture(0)
 if not cap.isOpened():
     print("ERROR: Could not open camera.")
     sys.exit(1)
+
+# Create window early if GUI is enabled
+if show_gui:
+    cv2.namedWindow("ArcFace Live", cv2.WINDOW_NORMAL)
+    cv2.resizeWindow("ArcFace Live", 800, 600)
+    print("Window 'ArcFace Live' created.")
 
 last_seen = {}
 ATTENDANCE_LOG = Path("attendance.csv")
@@ -98,7 +99,7 @@ CONF_THRESHOLD = 0.60
 # We'll print unusual-shape diagnostics only once to avoid spamming
 diagnostic_shown = False
 
-print("Starting inference loop — press 'q' in the window (if shown) to quit.")
+print("Starting ArcFace inference loop — press 'q' in the window (if shown) to quit.")
 try:
     while True:
         ret, frame = cap.read()
@@ -115,44 +116,22 @@ try:
         inp = preprocess_frame(crop)
 
         try:
-            emb_i.set_tensor(emb_in["index"], inp)
-            emb_i.invoke()
-            emb_raw = emb_i.get_tensor(emb_out["index"])
-            emb_arr = safe_to_numpy(emb_raw).astype(np.float32).reshape(1, -1)
+            # Run ArcFace ONNX inference
+            emb_arr = emb_session.run([emb_output_name], {emb_input_name: inp})[0]
+            emb_arr = emb_arr.astype(np.float32).reshape(1, -1)
 
-            # double-check dims vs classifier input
-            expected_cls_dim = int(np.prod(cls_in["shape"][1:])) if len(cls_in["shape"])>1 else cls_in["shape"][0]
-            if emb_arr.shape[1] != expected_cls_dim:
-                # show a single diagnostic and stop — mismatch should be handled by training script
-                if not diagnostic_shown:
-                    print("DIAGNOSTIC: embedding dim", emb_arr.shape, "does not match classifier input dim", cls_in["shape"])
-                    print("Solution: train a classifier using these embeddings (scripts/train_classifier_from_tflite_embeddings.py).")
-                    diagnostic_shown = True
-                # to avoid repeated noisy errors, pause briefly and continue
-                time.sleep(0.5)
-                continue
-
-            # prepare classifier input: classifier may expect float32 or quantized
-            if cls_dtype == np.float32:
-                cls_input = emb_arr.astype(np.float32)
+            # Run classifier (joblib model - likely sklearn)
+            # Most sklearn classifiers have predict_proba method
+            if hasattr(classifier, 'predict_proba'):
+                probs_raw = classifier.predict_proba(emb_arr)[0]
             else:
-                # quantize embedding to class input dtype
-                scale, zp = cls_quant
-                if scale == 0:
-                    est_scale = 1.0 / 512.0
-                    q = emb_arr / est_scale
-                    zp = 0
-                else:
-                    q = emb_arr / scale + zp
-                if np.issubdtype(cls_dtype, np.signedinteger):
-                    q = np.round(q).astype(np.int8)
-                else:
-                    q = np.round(q).astype(np.uint8)
-                cls_input = q
-
-            cls_i.set_tensor(cls_in["index"], cls_input)
-            cls_i.invoke()
-            probs_raw = cls_i.get_tensor(cls_out["index"])
+                # fallback: use predict and create one-hot style output
+                pred = classifier.predict(emb_arr)[0]
+                num_classes = len(label_map)
+                probs_raw = np.zeros(num_classes)
+                if pred < num_classes:
+                    probs_raw[pred] = 1.0
+            
             probs = safe_to_numpy(probs_raw)
 
             # normalize probs shape: could be (1,N) or (N,) or scalar
@@ -193,10 +172,15 @@ try:
             txt = f"{reg} ({conf:.2f})"
             if show_gui:
                 cv2.putText(frame, txt, (10,40), cv2.FONT_HERSHEY_SIMPLEX, 1.0, (0,200,0) if conf>=CONF_THRESHOLD else (0,120,255), 2)
-                cv2.imshow("TFLite Live", frame)
+                cv2.imshow("ArcFace Live", frame)
+                # Must call waitKey to update window
+                key = cv2.waitKey(1) & 0xFF
+                if key == ord('q'):
+                    break
             else:
                 # headless
                 print(txt)
+                time.sleep(0.03)  # Small delay to prevent CPU overload
 
             # log attendance
             now = time.time()
@@ -205,10 +189,6 @@ try:
                 ATTENDANCE_LOG.parent.mkdir(parents=True, exist_ok=True)
                 with open(ATTENDANCE_LOG, "a", encoding="utf-8") as f:
                     f.write(f"{reg},{conf:.3f},{time.strftime('%Y-%m-%d %H:%M:%S')}\n")
-
-            # handle GUI quit
-            if show_gui and (cv2.waitKey(1) & 0xFF) == ord('q'):
-                break
 
         except Exception as e:
             # Print a short traceback only first time, then a short message to avoid flooding console

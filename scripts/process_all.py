@@ -99,8 +99,36 @@ for regdir in sorted([d for d in ENROLL.iterdir() if d.is_dir()]):
     })
 
 import csv
-with open(REPORTS/"failed_detection_report.csv","w",newline="",encoding="utf-8") as f:
-    w=csv.DictWriter(f,fieldnames=report[0].keys())
-    w.writeheader(); w.writerows(report)
+
+if not report:
+    print("No report rows to write.")
+else:
+    # compute union of all keys across report rows so CSV header contains every possible column
+    fieldnames_set = set()
+    for r in report:
+        if isinstance(r, dict):
+            fieldnames_set.update(r.keys())
+
+    # prefer a stable, readable order: common fields first, then the rest sorted
+    preferred_order = ["RegistrationID", "Uploaded", "Passed", "Failed", "Skipped"]
+    # include any other fields that appeared
+    other_fields = [f for f in sorted(fieldnames_set) if f not in preferred_order]
+    fieldnames = [f for f in preferred_order if f in fieldnames_set] + other_fields
+
+    out_path = REPORTS / "failed_detection_report.csv"
+    with open(out_path, "w", newline="", encoding="utf-8") as f:
+        writer = csv.DictWriter(f, fieldnames=fieldnames, extrasaction='ignore')
+        writer.writeheader()
+        # ensure every row is a dict and write rows in the same column order
+        for row in report:
+            if not isinstance(row, dict):
+                # skip bad entries (shouldn't happen) but keep log
+                continue
+            # create a canonical row mapping missing fields -> ''
+            canonical = {k: row.get(k, "") for k in fieldnames}
+            writer.writerow(canonical)
+
+    print(f"Wrote report CSV: {out_path}")
+
 
 print("process_all completed.")

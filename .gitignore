@@ -22,9 +22,10 @@ wheels/
 # Project-specific
 data/
 models/
-reports/
+reports*/
 attendance.csv
 *.log
+logs/
 .env
 .venv
 venv/
@@ -57,3 +58,4 @@ Thumbs.db
 temp/
 tmp/
 *.bak
+*.zip
