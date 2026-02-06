@@ -1,0 +1,71 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+  <div class="page-head">
+    <div>
+      <h2 class="page-title">Attendance Sessions</h2>
+      <p class="page-sub">Sessions with student count, unknowns, and a frame.</p>
+    </div>
+    <div class="page-badge">Local • Private</div>
+  </div>
+
+  <form method="get" class="section" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+    <input name="q" value="{{ q }}" placeholder="Search sessions..." style="max-width:260px;">
+    <select name="size" style="max-width:120px;">
+      {% for s in [5,6,10,20] %}
+      <option value="{{ s }}" {% if size==s %}selected{% endif %}>{{ s }} / page</option>
+      {% endfor %}
+    </select>
+    <button class="btn">Apply</button>
+  </form>
+
+  <div class="section" style="display:grid;gap:12px;">
+    {% for s in sessions %}
+    <div class="card" style="box-shadow:none;">
+      <div style="display:grid;gap:10px;grid-template-columns:120px 1fr;align-items:center;">
+        <div>
+          {% if s.thumbnail_path %}
+          <img src="{{ s.thumbnail_path }}"
+            style="width:120px;height:90px;object-fit:cover;border-radius:10px;border:1px solid var(--border);"
+            alt="Session frame">
+          {% else %}
+          <div
+            style="width:120px;height:90px;border-radius:10px;border:1px solid var(--border);display:flex;align-items:center;justify-content:center;color:var(--muted);font-size:12px;">
+            No frame</div>
+          {% endif %}
+        </div>
+        <div>
+          <div style="font-weight:800;">
+            {{ s.name or "Session " ~ s.id }}
+          </div>
+          <div class="subtle">Class: {{ s.class_name or "—" }} | Staff: {{ s.staff_incharge or "—" }}</div>
+          <div class="subtle">Students: {{ counts.get(s.id|string, 0) }} | Unknowns: {{ s.unknown_count or 0 }}</div>
+          <div class="subtle">Started: {{ s.started_at }} | Ended: {{ s.ended_at or "—" }}</div>
+
+          <div style="margin-top:8px;display:flex;gap:8px;flex-wrap:wrap;">
+            <a class="btn" href="/attendance/session/{{ s.id }}">View Records</a>
+          </div>
+        </div>
+      </div>
+
+      <form method="post" action="/attendance/session/{{ s.id }}/edit" style="margin-top:10px;display:grid;gap:8px;">
+        <div style="display:grid;gap:8px;grid-template-columns:repeat(auto-fit,minmax(160px,1fr));">
+          <input name="name" placeholder="Session name" value="{{ s.name or '' }}">
+          <input name="class_name" placeholder="Class" value="{{ s.class_name or '' }}">
+          <input name="staff_incharge" placeholder="Staff incharge" value="{{ s.staff_incharge or '' }}">
+        </div>
+        <div style="display:flex;justify-content:flex-end;">
+          <button class="btn btn-primary">Save Details</button>
+        </div>
+      </form>
+    </div>
+    {% endfor %}
+  </div>
+
+  <div class="section" style="display:flex;gap:8px;align-items:center;justify-content:flex-end;">
+    <a class="btn" href="?q={{ q }}&size={{ size }}&page={{ page-1 if page>1 else 1 }}">Prev</a>
+    <span class="subtle">Page {{ page }} / {{ total_pages }}</span>
+    <a class="btn" href="?q={{ q }}&size={{ size }}&page={{ page+1 if page<total_pages else total_pages }}">Next</a>
+  </div>
+</div>
+{% endblock %}
