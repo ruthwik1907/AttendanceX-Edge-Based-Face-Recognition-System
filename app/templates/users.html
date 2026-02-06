@@ -1,0 +1,75 @@
+{% extends "base.html" %}
+{% block content %}
+<div class="card">
+    <div class="page-head">
+        <div>
+            <h2 class="page-title">Manage Users</h2>
+            <p class="page-sub">Add or remove admin users.</p>
+        </div>
+        <div class="page-badge">Admin</div>
+    </div>
+
+    {% if error %}
+    <p style="color:#b00020;font-weight:600;">{{ error }}</p>
+    {% endif %}
+
+    <form method="post" action="/users" style="display:flex;gap:10px;flex-wrap:wrap;">
+        <input name="username" placeholder="Username" required>
+        <input name="password" type="password" placeholder="Password" required>
+        <button class="btn btn-primary">Add User</button>
+    </form>
+
+    <form method="get" class="section" style="display:flex;gap:10px;flex-wrap:wrap;align-items:center;">
+        <input name="q" value="{{ q }}" placeholder="Search users..." style="max-width:260px;">
+        <select name="size" style="max-width:120px;">
+            {% for s in [5,10,20,50] %}
+            <option value="{{ s }}" {% if size==s %}selected{% endif %}>{{ s }} / page</option>
+            {% endfor %}
+        </select>
+        <button class="btn">Apply</button>
+    </form>
+
+    <div class="section" style="display:flex;gap:10px;justify-content:space-between;align-items:center;">
+        <input id="userSearch" placeholder="Search users..." style="max-width:260px;">
+        <div id="userPager" style="display:flex;gap:8px;align-items:center;">
+            <button class="btn prev">Prev</button>
+            <span class="page-info subtle"></span>
+            <button class="btn next">Next</button>
+        </div>
+    </div>
+
+    <div class="section">
+        <table id="userTable">
+            <thead>
+                <tr>
+                    <th>Username</th>
+                    <th>Action</th>
+                </tr>
+            </thead>
+            <tbody>
+                {% for u in users %}
+                <tr>
+                    <td>{{ u.username }}</td>
+                    <td>
+                        <form method="post" action="/users/delete">
+                            <input type="hidden" name="username" value="{{ u.username }}">
+                            <button class="btn">Delete</button>
+                        </form>
+                    </td>
+                </tr>
+                {% endfor %}
+            </tbody>
+        </table>
+    </div>
+
+    <div class="section" style="display:flex;gap:8px;align-items:center;justify-content:flex-end;">
+        <a class="btn" href="?q={{ q }}&size={{ size }}&page={{ page-1 if page>1 else 1 }}">Prev</a>
+        <span class="subtle">Page {{ page }} / {{ total_pages }}</span>
+        <a class="btn" href="?q={{ q }}&size={{ size }}&page={{ page+1 if page<total_pages else total_pages }}">Next</a>
+    </div>
+</div>
+
+<script>
+    initTablePager("userTable", "userSearch", "userPager", 8);
+</script>
+{% endblock %}
